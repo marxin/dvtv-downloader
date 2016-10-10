@@ -12,9 +12,12 @@ from feedgen.feed import FeedGenerator
 from pytz import timezone
 from urllib.parse import urljoin
 from mutagen.mp3 import MP3
+import logging
 
 root_folder = '/srv/www/htdocs/'
 dest_folder = os.path.join(root_folder, 'podcasts')
+logging.basicConfig(filename = os.path.join(dest_folder, 'dvtv.log'), level = logging.DEBUG)
+
 root_url = 'http://skyler.foxlink.cz:8000/'
 start_date = datetime(2016, 10, 10, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
@@ -40,7 +43,7 @@ class VideoDatabase:
             if latest_date > start_date:
                 start_date = latest_date
 
-        print('Downloading videos younger than: ' + datetime.strftime(start_date, datetime_format))
+        logging.info('Downloading videos younger than: ' + datetime.strftime(start_date, datetime_format))
 
         fg = FeedGenerator()
         fg.load_extension('podcast')
@@ -50,7 +53,8 @@ class VideoDatabase:
         fg.title('DVTV')
         fg.author({'name': 'Martin Liška', 'email': 'marxin.liska@gmail.com' })
         fg.language('cs-CZ')
-        fg.link(href = 'test.cz', rel = 'self')
+        fg.link(href = 'http://video.aktualne.cz/dvtv', rel = 'self')
+        fg.logo(urljoin(root_url, 'podcasts/cover.jpg'))
         fg.description('DVTV')
 
         self.feed_generator = fg
@@ -102,9 +106,9 @@ class VideoDatabase:
             all_links += links[0]
             # all links are older that threshold
             if links[1]:
-                print("Breaking")
+                logging.info("Skipping link download, no new podcasts")
                 break;
-            print('Getting links: %u' % i)
+            logging.info('Getting links: %u' % i)
             if len(links) == 0:
                 break
 
@@ -150,7 +154,7 @@ class VideoDatabase:
         c = 0
         for video in all_links:
             c += 1
-            print('%u/%u: %s' % (c, len(all_links), str(video)))
+            logging.info('%u/%u: %s' % (c, len(all_links), str(video)))
 
             mp3 = video.get_filename ('mp3')
             mp4 = video.get_filename ('mp4')
@@ -161,21 +165,20 @@ class VideoDatabase:
                 subprocess.call(args)
 
                 if not os.path.isfile(mp4):
-                    print('Error in downloading: ' + mp4)
+                    logging.info('Error in downloading: ' + mp4)
                     continue
 
-                print(['ffmpeg', '-y', '-i', mp4, mp3])
+                logging.info(['ffmpeg', '-y', '-i', mp4, mp3])
                 subprocess.check_call(['ffmpeg', '-y', '-i', mp4, mp3])
                 subprocess.check_call(['id3v2', '-2', '-g', 'Žunalistika', '-a', 'DVTV', '-A', 'DVTV ' + video.date.strftime('%Y-%m'), '-t', 'DVTV: ' + video.date.strftime('%d. %m. ') + video.description, mp3])
-                subprocess.check_call(['eyeD3', '--add-image', 'cover.jpg:OTHER', mp3], stderr = FNULL, stdout = FNULL)
 
-                print('Removing: %s' % mp4)
+                logging.info('Removing: %s' % mp4)
                 os.remove(mp4)
             else:
-                print('File exists: ' + mp3)
+                logging.info('File exists: ' + mp3)
 
             # add new RSS feed entry
-            print('Getting full description for: '+ video.description)
+            logging.info('Getting full description for: '+ video.description)
             video.get_description()
 
             self.add_video(video)
