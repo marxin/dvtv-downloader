@@ -5,6 +5,7 @@ import re
 import subprocess
 import os
 import json
+import shutil
 
 from datetime import *
 from operator import *
@@ -22,6 +23,8 @@ root_url = 'http://skyler.foxlink.cz:8000/'
 start_date = datetime(2016, 10, 10, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
 prague_tz = timezone('Europe/Prague')
+
+current_folder = os.path.dirname(os.path.realpath(__file__))
 
 def build_url(suffix):
     return 'http://video.aktualne.cz/%s' % suffix
@@ -147,6 +150,10 @@ class VideoDatabase:
 
         if not os.path.exists(dest_folder):
             os.makedirs(dest_folder, 0o755)
+
+        # copy cover image file
+        if not os.path.exists(os.path.join(dest_folder, 'cover.jpg')):
+            shutil.copy(os.path.join(current_folder, 'cover.jpg'), dest_folder)
 
         self.remove_video_files()
 
