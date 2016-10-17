@@ -234,7 +234,7 @@ class Video:
         return f
 
     def get_date_str(self):
-        return self.date.strftime('%d. %m. %Y')
+        return self.date.strftime('%d. %m. %Y %H:%M')
 
     def __str__(self):
         return 'link: %s, filename: %s, description: %s, date: %s' % (self.link, self.filename, self.description, self.get_date_str())
