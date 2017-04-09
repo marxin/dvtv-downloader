@@ -104,7 +104,7 @@ class VideoDatabase:
 
         urls = ['http://video.aktualne.cz/dvtv/?offset=%u', 'http://video.aktualne.cz/dvtv/forum/?offset=%u']
 
-        for url_base in reversed(urls):
+        for url_base in urls:
             i = 0
             while True:
                 # DVTV forum displays a different page with offset == 0
