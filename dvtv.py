@@ -20,7 +20,7 @@ dest_folder = os.path.join(root_folder, 'podcasts')
 logging.basicConfig(filename = os.path.join(dest_folder, 'dvtv.log'), level = logging.DEBUG)
 
 root_url = 'http://skyler.foxlink.cz:8000/'
-start_date = datetime(2016, 10, 1, tzinfo = timezone('Europe/Prague'))
+start_date = datetime(2017, 2, 1, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
 prague_tz = timezone('Europe/Prague')
 
@@ -102,20 +102,27 @@ class VideoDatabase:
     def get_links(self):
         all_links = []
 
-        i = 0
-        while True:
-            url = 'http://video.aktualne.cz/dvtv/?offset=%u' % (5 * i)
-            links = self.get_page_links(url)
-            all_links += links[0]
-            # all links are older that threshold
-            if links[1]:
-                logging.info("Skipping link download, no new podcasts")
-                break;
-            logging.info('Getting links: %u' % i)
-            if len(links) == 0:
-                break
+        urls = ['http://video.aktualne.cz/dvtv/?offset=%u', 'http://video.aktualne.cz/dvtv/forum/?offset=%u']
 
-            i += 1
+        for url_base in reversed(urls):
+            i = 0
+            while True:
+                # DVTV forum displays a different page with offset == 0
+                offset = 5 * i
+                if i == 0 and 'forum' in url_base:
+                    offset = 1
+
+                links = self.get_page_links(url_base % offset)
+                all_links += links[0]
+                # all links are older than threshold
+                if links[1]:
+                    logging.info("Skipping link download, no new podcasts")
+                    break;
+                logging.info('Getting links: %u' % i)
+                if len(links) == 0:
+                    break
+
+                i += 1
 
         d = {}
         for link in all_links:
