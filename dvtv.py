@@ -20,7 +20,7 @@ dest_folder = os.path.join(root_folder, 'podcasts')
 logging.basicConfig(filename = os.path.join(dest_folder, 'dvtv.log'), level = logging.DEBUG)
 
 root_url = 'http://skyler.foxlink.cz:8000/'
-start_date = datetime(2017, 2, 1, tzinfo = timezone('Europe/Prague'))
+start_date = datetime(2017, 5, 25, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
 prague_tz = timezone('Europe/Prague')
 
@@ -30,10 +30,11 @@ def build_url(suffix):
     return 'http://video.aktualne.cz/%s' % suffix
 
 class VideoDatabase:
-    def __init__(self, rss_filename, json_filename):
+    def __init__(self, title, rss_filename, json_filename):
         self.videos = set()
         self.rss_filename = rss_filename
         self.json_filename = json_filename
+        self.title = title
 
         if os.path.exists(json_filename):
             with open(json_filename, 'r') as ifile:
@@ -41,7 +42,8 @@ class VideoDatabase:
                     self.videos.add(Video(json = i))
 
         if len(self.videos) > 0:
-            latest_date = max(map(lambda x: x.date, self.videos))
+            latest_date = max(map(lambda x: x.date, self.videos)) - timedelta(days = 14)
+
             global start_date
             if latest_date > start_date:
                 start_date = latest_date
@@ -52,11 +54,11 @@ class VideoDatabase:
         fg.load_extension('podcast')
         fg.podcast.itunes_category('Technology', 'Podcasting')
 
-        fg.id('marxin-dvtv')
-        fg.title('DVTV')
+        fg.id('marxin-' + self.title)
+        fg.title(self.title)
         fg.author({'name': 'Martin Liška', 'email': 'marxin.liska@gmail.com' })
         fg.language('cs-CZ')
-        fg.link(href = 'http://video.aktualne.cz/dvtv', rel = 'self')
+        fg.link(href = 'http://video.aktualne.cz/dvtv/', rel = 'self')
         fg.logo(urljoin(root_url, 'podcasts/cover.jpg'))
         fg.description('DVTV')
 
@@ -85,7 +87,7 @@ class VideoDatabase:
             if m != None:
                 if last_video != None:
                     links.append(last_video)
-                last_video = Video(m.group(1), re.match('.*/dvtv/(.*)/r~.*', line).group(1))
+                last_video = Video('https://video.aktualne.cz/dvtv/' + m.group(1), re.match('.*/dvtv/(.*)/r~.*', line).group(1))
             m2 = re.match('.*<span>(.*)</span></h5>', line)
             if m2 != None and last_video != None:
                 d = m2.group(1).replace('&#32;', '')
@@ -102,34 +104,31 @@ class VideoDatabase:
     def get_links(self):
         all_links = []
 
-        urls = ['http://video.aktualne.cz/dvtv/?offset=%u', 'http://video.aktualne.cz/dvtv/forum/?offset=%u']
+        i = 0
+        while True:
+            # DVTV forum displays a different page with offset == 0
+            offset = 5 * i
+            if i == 0 and self.title != 'DVTV':
+                offset = 1
 
-        for url_base in urls:
-            i = 0
-            while True:
-                # DVTV forum displays a different page with offset == 0
-                offset = 5 * i
-                if i == 0 and 'forum' in url_base:
-                    offset = 1
+            url = ('https://video.aktualne.cz/dvtv/?offset=%d') % offset
+            links = self.get_page_links(url)
+            all_links += links[0]
+            # all links are older than threshold
+            if links[1]:
+                logging.info("Skipping link download, no new podcasts")
+                break;
+            logging.info('Getting links %s: %u' % (url, i))
+            if len(links) == 0:
+                break
 
-                links = self.get_page_links(url_base % offset)
-                all_links += links[0]
-                # all links are older than threshold
-                if links[1]:
-                    logging.info("Skipping link download, no new podcasts")
-                    break;
-                logging.info('Getting links: %u' % i)
-                if len(links) == 0:
-                    break
+            i += 1
 
-                i += 1
-
-        d = {}
-        for link in all_links:
-            d[link.link] = link
-
+        # fitler links by category
+        all_links = [x for x in all_links if x.category == self.title]
         all_links = list(set(filter(lambda x: not 'Drtinová Veselovský TV' in x.description and x.date >= start_date, all_links)))
         all_links = sorted(all_links, reverse = True, key = lambda x: x.date)
+        print('Parsed %d links for %s' % (len(all_links), self.title))
         return all_links
 
     def add_podcast_entry(self, video, filename):
@@ -175,7 +174,7 @@ class VideoDatabase:
 
             if not os.path.isfile(mp3):
                 u = build_url(video.link)
-                args = ['youtube-dl', u, '-o', mp4]
+                args = ['python3', '/home/marxin/Programming/youtube-dl/youtube-dl', u, '-o', mp4]
                 subprocess.call(args)
 
                 if not os.path.isfile(mp4):
@@ -204,6 +203,14 @@ class Video:
         self.date = None
         self.description = None
         self.full_description = None
+
+        if self.link != None:
+            if 'dvtv/forum' in self.link:
+                self.category = 'DVTV forum'
+            elif 'dvtv-apen' in self.link:
+                self.category = 'DVTV apel'
+            else:
+                self.category = 'DVTV'
 
         if json != None:
             self.link = json['link']
@@ -275,6 +282,11 @@ class Video:
     def __hash__(self):
         return hash(self.link)
 
-db = VideoDatabase(os.path.join(dest_folder, 'dvtv.rss'), os.path.join(dest_folder, 'db.json'))
-db.main()
-db.serialize()
+dbs = []
+dbs.append(VideoDatabase('DVTV apel', os.path.join(dest_folder, 'dvtv-apel.rss'), os.path.join(dest_folder, 'dvtv-apel-db.json')))
+dbs.append(VideoDatabase('DVTV forum', os.path.join(dest_folder, 'dvtv-forum.rss'), os.path.join(dest_folder, 'dvtv-forum-db.json')))
+dbs.append(VideoDatabase('DVTV', os.path.join(dest_folder, 'dvtv.rss'), os.path.join(dest_folder, 'dvtv-db.json')))
+
+for db in dbs:
+    db.main()
+    db.serialize()
