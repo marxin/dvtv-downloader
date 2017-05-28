@@ -20,7 +20,7 @@ dest_folder = os.path.join(root_folder, 'podcasts')
 logging.basicConfig(filename = os.path.join(dest_folder, 'dvtv.log'), level = logging.DEBUG)
 
 root_url = 'http://skyler.foxlink.cz:8000/'
-start_date = datetime(2017, 5, 25, tzinfo = timezone('Europe/Prague'))
+start_date = datetime(2017, 5, 1, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
 prague_tz = timezone('Europe/Prague')
 
