@@ -34,7 +34,7 @@ class VideoDatabase:
         self.videos = set()
         self.rss_filename = rss_filename
         self.json_filename = json_filename
-        self.start_date = datetime(2017, 5, 29, tzinfo = timezone('Europe/Prague'))
+        self.start_date = datetime(2017, 5, 1, tzinfo = timezone('Europe/Prague'))
 
         if os.path.exists(json_filename):
             with open(json_filename, 'r') as ifile:
@@ -132,7 +132,7 @@ class VideoDatabase:
     def add_podcast_entry(self, video, filename):
         fe = self.feed_generator.add_entry()
         fe.id(video.link)
-        fe.title(video.category + ':' + video.description)
+        fe.title(video.category + ': ' + video.description)
         fe.description(video.full_description)
         assert filename.startswith(dest_folder)
         filename_url = filename[len(root_folder):]
