@@ -13,6 +13,7 @@ from feedgen.feed import FeedGenerator
 from pytz import timezone
 from urllib.parse import urljoin
 from mutagen.mp3 import MP3
+from bs4 import BeautifulSoup
 import logging
 
 root_folder = '/srv/www/htdocs/'
@@ -20,7 +21,6 @@ dest_folder = os.path.join(root_folder, 'podcasts')
 logging.basicConfig(filename = os.path.join(dest_folder, 'dvtv.log'), level = logging.DEBUG)
 
 root_url = 'http://skyler.foxlink.cz:8000/'
-start_date = datetime(2017, 5, 1, tzinfo = timezone('Europe/Prague'))
 datetime_format = '%Y-%m-%d %H:%M:%S'
 prague_tz = timezone('Europe/Prague')
 
@@ -30,11 +30,11 @@ def build_url(suffix):
     return 'http://video.aktualne.cz/%s' % suffix
 
 class VideoDatabase:
-    def __init__(self, title, rss_filename, json_filename):
+    def __init__(self, rss_filename, json_filename):
         self.videos = set()
         self.rss_filename = rss_filename
         self.json_filename = json_filename
-        self.title = title
+        self.start_date = datetime(2017, 5, 29, tzinfo = timezone('Europe/Prague'))
 
         if os.path.exists(json_filename):
             with open(json_filename, 'r') as ifile:
@@ -44,18 +44,17 @@ class VideoDatabase:
         if len(self.videos) > 0:
             latest_date = max(map(lambda x: x.date, self.videos)) - timedelta(days = 14)
 
-            global start_date
-            if latest_date > start_date:
-                start_date = latest_date
+            if latest_date > self.start_date:
+                self.start_date = latest_date
 
-        logging.info('Downloading videos younger than: ' + datetime.strftime(start_date, datetime_format))
+        logging.info('Downloading videos younger than: ' + datetime.strftime(self.start_date, datetime_format))
 
         fg = FeedGenerator()
         fg.load_extension('podcast')
         fg.podcast.itunes_category('Technology', 'Podcasting')
 
-        fg.id('marxin-' + self.title)
-        fg.title(self.title)
+        fg.id('marxin-dvtv')
+        fg.title('DVTV')
         fg.author({'name': 'Martin Liška', 'email': 'marxin.liska@gmail.com' })
         fg.language('cs-CZ')
         fg.link(href = 'http://video.aktualne.cz/dvtv/', rel = 'self')
@@ -76,64 +75,64 @@ class VideoDatabase:
 
         self.feed_generator.rss_file(self.rss_filename)
 
-    def get_page_links(self, url):
-        response = urllib.request.urlopen(url)
-        data = response.read()
-        text = data.decode('utf-8')
-        links = []
-        last_video = None
-        for line in text.split('\n'):
-            m = re.match('.*href="(/dvtv.*r~.*)".*', line)
-            if m != None:
-                if last_video != None:
-                    links.append(last_video)
-                last_video = Video('https://video.aktualne.cz/dvtv/' + m.group(1), re.match('.*/dvtv/(.*)/r~.*', line).group(1))
-            m2 = re.match('.*<span>(.*)</span></h5>', line)
-            if m2 != None and last_video != None:
-                d = m2.group(1).replace('&#32;', '')
-                last_video.set_date(d)
-            m3 = re.match('.*<span class="nazev">(.*)</span>.*', line)
-            if m3 != None and last_video != None:
-                last_video.description = m3.group(1)
-            m4 = re.match('<img src="([^"]*)".*', line)
-            if m4 != None and last_video != None:
-                last_video.image = m4.group(1)
+    def get_category(self, soup):
+        for tag in soup.find_all('div', 'tagy')[0].find_all('a'):
+            if tag.string == 'DVTV Apel' or tag.string == 'DVTV Forum':
+                return tag.string
 
-        return (links, all(map(lambda x: x.date < start_date, links)))
+        return 'DVTV'
+
+    def get_page_links(self, url):
+        data = urllib.request.urlopen(url).read()
+        soup = BeautifulSoup(data, 'html.parser')
+
+        videos = []
+        for link in soup.find_all('a', 'nahled'):
+            url = link['href']
+            m = re.match('/dvtv/(.*)/r~.*', url)
+            if m == None:
+                continue
+
+            description = link.find_all('span', 'nazev')[0].string
+            data = urllib.request.urlopen(build_url(url)).read()
+            soup_detail = BeautifulSoup(data, 'html.parser')
+            detail = soup_detail.find_all('p', 'popis')[0]
+            full_description = detail.contents[1].strip().strip('|').strip()
+
+            video = Video(build_url(url), re.match('.*/dvtv/(.*)/r~.*', url).group(1),
+                    description, full_description, self.get_category(soup_detail), detail.span.string.strip())
+            videos.append(video)
+
+        return [v for v in videos if v.date >= self.start_date]
 
     def get_links(self):
         all_links = []
-
         i = 0
-        while True:
-            # DVTV forum displays a different page with offset == 0
-            offset = 5 * i
-            if i == 0 and self.title != 'DVTV':
-                offset = 1
 
-            url = ('https://video.aktualne.cz/dvtv/?offset=%d') % offset
-            links = self.get_page_links(url)
-            all_links += links[0]
-            # all links are older than threshold
-            if links[1]:
+        while True:
+            u = 'http://video.aktualne.cz/dvtv/?offset=%u' % (10 * i)
+            logging.info('Getting links %s' % u)
+            links = self.get_page_links(u)
+            if len(links) == 0:
                 logging.info("Skipping link download, no new podcasts")
-                break;
-            logging.info('Getting links %s: %u' % (url, i))
+                break
+
+            all_links += links
             if len(links) == 0:
                 break
 
             i += 1
 
         # fitler links by category
-        all_links = [x for x in all_links if x.category == self.title]
-        all_links = list(set(filter(lambda x: not 'Drtinová Veselovský TV' in x.description and not x.description.startswith('DVTV Forum:') and x.date >= start_date, all_links)))
-        print('Parsed %d links for %s' % (len(all_links), self.title))
+        all_links = list(set(filter(lambda x: not 'Drtinová Veselovský TV' in x.description
+            and not x.description.startswith('DVTV Forum:'), all_links)))
+        logging.info('Parsed %d links' % len(all_links))
         return all_links
 
     def add_podcast_entry(self, video, filename):
         fe = self.feed_generator.add_entry()
         fe.id(video.link)
-        fe.title(video.description)
+        fe.title(video.category + ':' + video.description)
         fe.description(video.full_description)
         assert filename.startswith(dest_folder)
         filename_url = filename[len(root_folder):]
@@ -182,34 +181,23 @@ class VideoDatabase:
 
                 logging.info(['ffmpeg', '-y', '-i', mp4, mp3])
                 subprocess.check_call(['ffmpeg', '-y', '-i', mp4, mp3])
-                subprocess.check_call(['id3v2', '-2', '-g', 'Žunalistika', '-a', 'DVTV', '-A', 'DVTV ' + video.date.strftime('%Y-%m'), '-t', 'DVTV: ' + video.date.strftime('%d. %m. ') + video.description, mp3])
 
                 logging.info('Removing: %s' % mp4)
                 os.remove(mp4)
             else:
                 logging.info('File exists: ' + mp3)
 
-            # add new RSS feed entry
-            logging.info('Getting full description for: '+ video.description)
-            video.get_description()
-
             self.add_video(video)
 
 class Video:
-    def __init__(self, link = None, filename = None, json = None):
+    def __init__(self, link = None, filename = None, description = None, full_description = None, category = None, date = None,
+            json = None):
         self.link = link
         self.filename = filename
-        self.date = None
-        self.description = None
-        self.full_description = None
-
-        if self.link != None:
-            if 'dvtv/forum' in self.link:
-                self.category = 'DVTV forum'
-            elif 'dvtv-apen' in self.link:
-                self.category = 'DVTV apel'
-            else:
-                self.category = 'DVTV'
+        self.description = description
+        self.full_description = full_description
+        self.category = category
+        self.set_date(date)
 
         if json != None:
             self.link = json['link']
@@ -217,9 +205,10 @@ class Video:
             self.date = prague_tz.localize(datetime.strptime(json['date'], datetime_format))
             self.description = json['description']
             self.full_description = json['full_description']
+            self.category = json['category']
 
     def serialize(self):
-        return { 'link': self.link, 'filename': self.filename, 'date': datetime.strftime(self.date, datetime_format), 'description': self.description, 'full_description': self.full_description }
+        return { 'link': self.link, 'filename': self.filename, 'date': datetime.strftime(self.date, datetime_format), 'description': self.description, 'full_description': self.full_description, 'category': self.category }
 
     def set_date(self, s):
         dates = s.split('.')
@@ -250,30 +239,11 @@ class Video:
         return self.date.strftime('%d. %m. %Y %H:%M')
 
     def __str__(self):
-        return 'link: %s, filename: %s, description: %s, date: %s' % (self.link, self.filename, self.description, self.get_date_str())
+        return 'link: %s, filename: %s, description: %s, date: %s, type: %s' % (self.link, self.filename, self.description, self.get_date_str(), self.category)
 
     def get_filename(self, suffix):
         f = self.create_folder()
         return os.path.join(f, '%s-%s.%s' % (self.date.strftime('%Y-%m-%d'), self.filename, suffix))
-
-    def get_description(self):
-        response = urllib.request.urlopen(build_url(self.link))
-        data = response.read()
-        text = data.decode('utf-8')
-        description = '' 
-        start = False
-        for line in text.split('\n'):
-            m = re.match('.*<p class="popis" data-replace="description"><span>[^|]*(.*)', line)
-            if start:
-                description += line
-            elif m != None:
-                description = m.group(1).strip().lstrip('| ')
-                start = True
-
-            if '</p>' in description:
-                break
-
-        self.full_description = description.strip().strip('</p>')
 
     def __eq__(self, other):
         return other != None and self.link == other.link
@@ -281,11 +251,6 @@ class Video:
     def __hash__(self):
         return hash(self.link)
 
-dbs = []
-dbs.append(VideoDatabase('DVTV apel', os.path.join(dest_folder, 'dvtv-apel.rss'), os.path.join(dest_folder, 'dvtv-apel-db.json')))
-dbs.append(VideoDatabase('DVTV forum', os.path.join(dest_folder, 'dvtv-forum.rss'), os.path.join(dest_folder, 'dvtv-forum-db.json')))
-dbs.append(VideoDatabase('DVTV', os.path.join(dest_folder, 'dvtv.rss'), os.path.join(dest_folder, 'dvtv-db.json')))
-
-for db in dbs:
-    db.main()
-    db.serialize()
+db = VideoDatabase(os.path.join(dest_folder, 'dvtv.rss'), os.path.join(dest_folder, 'dvtv-db.json'))
+db.main()
+db.serialize()
