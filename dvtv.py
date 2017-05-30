@@ -126,8 +126,7 @@ class VideoDatabase:
 
         # fitler links by category
         all_links = [x for x in all_links if x.category == self.title]
-        all_links = list(set(filter(lambda x: not 'Drtinová Veselovský TV' in x.description and x.date >= start_date, all_links)))
-        all_links = sorted([x for x in all_links if not x.title.startswith('DVTV Forum:')], reverse = True, key = lambda x: x.date)
+        all_links = list(set(filter(lambda x: not 'Drtinová Veselovský TV' in x.description and not x.description.startswith('DVTV Forum:') and x.date >= start_date, all_links)))
         print('Parsed %d links for %s' % (len(all_links), self.title))
         return all_links
 
