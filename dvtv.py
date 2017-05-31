@@ -42,7 +42,7 @@ class VideoDatabase:
                     self.videos.add(Video(json = i))
 
         if len(self.videos) > 0:
-            latest_date = max(map(lambda x: x.date, self.videos)) - timedelta(days = 14)
+            latest_date = max(map(lambda x: x.date, self.videos)) - timedelta(days = 7)
 
             if latest_date > self.start_date:
                 self.start_date = latest_date
