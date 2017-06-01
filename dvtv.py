@@ -197,7 +197,9 @@ class Video:
         self.description = description
         self.full_description = full_description
         self.category = category
-        self.set_date(date)
+
+        if date != None:
+            self.set_date(date)
 
         if json != None:
             self.link = json['link']
